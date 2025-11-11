@@ -42,10 +42,12 @@ client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"],
 )
 
-def gpt_msg(message_in, prompt='Translate this sentence into English'):
-  """
-  message_in = message_in or 'this is a test message'
-  prompt = prompt or 'translate this sentence into German'
+def gpt_msg(message_in, prompt='Translate this text into English'):
+  """Call to OpenAI ChatGPT.
+  
+  Args: 
+    message_in: Message to send to ChatGPT.
+    prompt: The system prompt for ChatGPT.
   # """
   out = client.chat.completions.create(
       messages=[
@@ -58,7 +60,7 @@ def gpt_msg(message_in, prompt='Translate this sentence into English'):
               "content": message_in,
           }
       ],
-      model="gpt-4-turbo-preview",
+      model="gpt-4o-mini",
   )
   return out.choices[0].message.content
 

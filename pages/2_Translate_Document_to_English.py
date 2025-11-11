@@ -5,7 +5,6 @@ import hmac
 
 
 
-
 def check_password():
     """Returns `True` if the user had the correct password."""
 
@@ -35,18 +34,21 @@ if not check_password():
     
     
 
-st.title("translate text to German")
+
+st.title("Translate text to English")
 
 
 client = OpenAI(
-    # This is the default and can be omitted
     api_key=st.secrets["OPENAI_API_KEY"],
 )
 
-def gpt_msg(message_in,prompt='translate this sentence into German'):
-  #message_in = message_in or 'this is a test message'
-  #propmt = propmt or 'translate this sentence into German'
-  #role = role or 'user'
+def gpt_msg(message_in, prompt='Translate this document into English'):
+  """Call to OpenAI ChatGPT.
+  
+  Args: 
+    message_in: Message to send to ChatGPT.
+    prompt: The system prompt for ChatGPT.
+  # """
   out = client.chat.completions.create(
       messages=[
           {
@@ -58,22 +60,29 @@ def gpt_msg(message_in,prompt='translate this sentence into German'):
               "content": message_in,
           }
       ],
-      model="gpt-4-turbo-preview",
+      model="gpt-4o-mini",
   )
   return out.choices[0].message.content
 
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
-        {"role": "assistant", "content": "Please enter text here to translate it into German"}
+        {"role": "assistant", "content": "Please upload a file to translate it into English"}
     ]
 
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
 
-if prompt := st.chat_input(placeholder="enter your text"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.chat_message("user").write(prompt)
+# file upload and translation
+uploaded_file = st.file_uploader("Upload a file to translate", type=["doc", "pdf"])
+if uploaded_file is not None:
+    # Read the contents of the uploaded file
+    with open(uploaded_file, "r") as f:
+        text = f.read()
 
-    response = gpt_msg(message_in=prompt)
+    # translate the text
+    response = gpt_msg(text)
+
+    # Show the translated text in a new chat message
     st.session_state.messages.append({"role": "assistant", "content": response})
     st.chat_message("assistant").write(response)
+
