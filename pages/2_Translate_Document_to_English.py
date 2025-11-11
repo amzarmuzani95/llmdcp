@@ -2,6 +2,7 @@ import streamlit as st
 from openai import OpenAI
 import os
 import hmac
+import re
 from pathlib import Path
 
 from helper import read_docx, read_pdf_chunks, download_txt, download_docx, perplexity_check, file_hash, split_into_token_chunks
@@ -33,13 +34,7 @@ def check_password():
 if not check_password():
     st.stop()  # Do not continue if check_password is not True.
 
-
-st.title("Translate documents to English")
-st.caption("Translate docs or PDFs into English")
-
-client = OpenAI(
-    api_key=st.secrets["OPENAI_API_KEY"],
-)
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 @st.cache_data
 def auto_review(english_text: str, model="gpt-5-nano") -> str:
@@ -54,21 +49,18 @@ def auto_review(english_text: str, model="gpt-5-nano") -> str:
     """
     response = client.chat.completions.create(
         model=model,
-        messages=[{
-                "role": "user",
-                "content": prompt
-                }],
+        messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
         max_tokens=4000,
     )
     return response.choices[0].message.content.strip()
 
 @st.cache_data
-def translate(raw_text: str, model="gpt-4o-mini") -> str:
+def translate(text: str, model="gpt-4o-mini") -> str:
     """Request OpenAI ChatGPT to translate a document.
   
     Args: 
-        raw_text: Message to send to ChatGPT for translation.
+        text: Message to send to ChatGPT for translation.
         model: The model to be used..
     """
     prompt = f"""You are an expert translator and language model.  
@@ -80,7 +72,7 @@ If you encounter ambiguous terms or cultural references, provide a brief note in
 **Input Document:**
 
 [START OF DOCUMENT]
-{raw_text}
+{text}
 [END OF DOCUMENT]
 
 **Output Format:**
@@ -94,15 +86,42 @@ If you encounter ambiguous terms or cultural references, provide a brief note in
 """
     response = client.chat.completions.create(
         model=model,
-        messages=[{
-                "role": "user",
-                "content": prompt
-                }],
+        messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
         max_tokens=4000,
     )
     return response.choices[0].message.content.strip()
 
+def summarize(text: str, max_tokens: int = 1000, model="gpt-4o-mini") -> str:
+    """
+    Summarize the input text into a concise English paragraph.
+    """
+    prompt = f"""
+        You are an expert summarizer. Please read the following text and produce a 
+        concise and coherent summary in English. Keep the tone neutral, use complete 
+        sentences, and avoid jargon.
+
+        **Text to summarize:**
+        {text}
+
+        **Summary:**
+    """
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3
+    )
+    return response.choices[0].message.content.strip()
+
+st.title("Translate or Summarize documents to English")
+st.caption("Upload a file and translate it into English or just summarize it!")
+
+# give user a choice to translate or summarize
+mode = st.radio(
+    label="What would you like to do?",
+    options=["Translate document", "Summarize document"],
+    index=0,
+)
 # file upload
 uploaded_file = st.file_uploader("Upload a file to translate", type=["docx", "pdf"])
 
@@ -122,45 +141,57 @@ if uploaded_file is not None:
         st.success(f"Extracted {len(text.split()):,} words from the DOCX.")
 
     # translate each chunk in parallel
-    st.markdown("### Translating...")
-    translated_chunks = []
+    st.markdown("### Working...")
+    processed_chunks = []
 
-    with st.spinner("Translating..."):
-        for idx, chunk in enumerate(chunks, 1):
-            # split the chunk into token-safe sub-chunks
-            subchunks = split_into_token_chunks(chunk, max_tokens=5000)
-            translated_subchunks = [translate(sub) for sub in subchunks]
-            st.write(translated_subchunks)
-            # re-assemble the translated sub-chunks
-            translated_chunks.append(" ".join(translated_subchunks))
+    for idx, chunk in enumerate(chunks, 1):
+        # split the chunk into token-safe sub-chunks
+        subchunks = split_into_token_chunks(chunk, max_tokens=5000)
 
-    full_translated = "\n\n".join(translated_chunks)
+        # translate/summarize each sub-chunk
+        if mode == "Translate document":
+            processed_subchunks = [translate(sub) for sub in subchunks]
+        else:
+            # Summarize each sub-chunk first, then merge
+            # (Keep the original chunk order; summarizing each chunk then concatenate
+            # this usually gives a good overview of the whole doc.)
+            processed_subchunks = [summarize(sub) for sub in subchunks]
+        
+        # write out & re-assemble the translated sub-chunks
+        st.write(processed_subchunks)
+        processed_chunks.append(" ".join(processed_subchunks))
 
-    # st.subheader("Initial Translation")
-    # st.write(full_translated)
+    # re-assemble the processed document
+    full_output = "\n\n".join(processed_chunks)
 
     # auto-review
-    with st.spinner("Auto-reviewing..."):
-        reviewed = auto_review(full_translated)
+    if mode == "Translate document":
+        with st.spinner("Auto-reviewing..."):
+            reviewed_text = auto_review(full_output)
+    else:
+        reviewed_text = full_output
 
-    st.subheader("After auto-review")
-    st.write(reviewed)
+    st.subheader("After auto-review:")
+    st.write(reviewed_text)
 
     # external sanity check
-    perplexity_score = perplexity_check(reviewed)
+    perplexity_score = perplexity_check(reviewed_text)
     st.info(f"Perplexity estimate: {perplexity_score:.1f}")
     if perplexity_score > 1500:
         st.warning("Perplexity score is high. Please double-check the translation manually.")
+    else:
+        st.success("Perplexity score looks good.")
 
-    # allow users to check
-    st.subheader("Side-by-side comparison")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**Original**")
-        st.write(chunks[0][:2000] + ("..." if len(chunks[0]) > 2000 else ""))
-    with col2:
-        st.markdown("**Translated**")
-        st.write(reviewed[:2000] + ("..." if len(reviewed) > 2000 else ""))
+    # allow users to do manual checking for translations
+    if mode == "Translate document":
+        st.subheader("Original vs. Translated")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Original**")
+            st.write(chunks[0][:2000] + ("..." if len(chunks[0]) > 2000 else ""))
+        with col2:
+            st.markdown("**Translated**")
+            st.write(reviewed_text[:2000] + ("..." if len(reviewed_text) > 2000 else ""))
 
     # allow manual edits
     st.markdown("""
@@ -168,7 +199,11 @@ if uploaded_file is not None:
         Once satisfied, click one of the download buttons.
     """)
 
-    edited_text = st.text_area("Edit translation (optional)", value=reviewed, height=300)
+    edited_text = st.text_area(
+        "Edit translation (optional)", 
+        value=reviewed_text, 
+        height=400,
+        )
 
     # Download buttons
     download_txt(edited_text, filename=f"{uploaded_file.name}_translated.txt")
