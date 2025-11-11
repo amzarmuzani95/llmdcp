@@ -4,7 +4,7 @@ import os
 import hmac
 from pathlib import Path
 
-from helper import read_docx, read_pdf, download_txt, download_docx, perplexity_check
+from helper import read_docx, read_pdf_chunks, download_txt, download_docx, perplexity_check, file_hash, split_into_token_chunks
 
 def check_password():
     """Returns `True` if the user had the correct password."""
@@ -41,6 +41,7 @@ client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"],
 )
 
+@st.cache_data
 def auto_review(english_text: str, model="gpt-5-nano") -> str:
     prompt = f"""
         You are an expert English editor. The following text has already been translated.
@@ -62,7 +63,8 @@ def auto_review(english_text: str, model="gpt-5-nano") -> str:
     )
     return response.choices[0].message.content.strip()
 
-def translate_document(raw_text: str, model="gpt-4o-mini") -> str:
+@st.cache_data
+def translate(raw_text: str, model="gpt-4o-mini") -> str:
     """Request OpenAI ChatGPT to translate a document.
   
     Args: 
@@ -85,9 +87,8 @@ If you encounter ambiguous terms or cultural references, provide a brief note in
 
 1. Translate the whole text into English.  
 2. Keep headings, lists, and tables exactly as in the source (convert tables to Markdown).  
-3. If you need to clarify a phrase, add a short note in brackets right after the sentence.  
-4. Do NOT add any explanatory text outside the translated content.  
-5. Do NOT alter numbers or proper nouns unless they are obviously incorrect in English.
+3. Do NOT add any explanatory text outside the translated content.
+4. Do NOT alter numbers or proper nouns unless they are obviously incorrect in English.
 
 **Now translate the document above.**
 """
@@ -105,27 +106,42 @@ If you encounter ambiguous terms or cultural references, provide a brief note in
 # file upload
 uploaded_file = st.file_uploader("Upload a file to translate", type=["docx", "pdf"])
 
-raw_text = None
 if uploaded_file is not None:
+    # get raw bytes once
+    file_bytes = uploaded_file.read()
+    file_md5 = file_hash(file_bytes)
+
+    # read the file
     file_type = Path(uploaded_file.name).suffix.lower()
-    if file_type == ".docx":
-        raw_text = read_docx(uploaded_file)
-    elif file_type == ".pdf":
-        raw_text = read_pdf(uploaded_file)
+    if file_type == ".pdf":
+        chunks = read_pdf_chunks(file_bytes, chunk_size=10000) # returns list[str]
+        st.success(f"Extracted {len(chunks)} PDF pages / chunks.")
+    else: # .docx
+        text = read_docx(file_bytes)
+        chunks = [text]
+        st.success(f"Extracted {len(text.split()):,} words from the DOCX.")
 
-    st.success(f"Extracted {len(raw_text.split()):,} words from the file.")
+    # translate each chunk in parallel
+    st.markdown("### Translating...")
+    translated_chunks = []
 
-# translate
-if raw_text:
     with st.spinner("Translating..."):
-        translated = translate_document(raw_text)
+        for idx, chunk in enumerate(chunks, 1):
+            # split the chunk into token-safe sub-chunks
+            subchunks = split_into_token_chunks(chunk, max_tokens=5000)
+            translated_subchunks = [translate(sub) for sub in subchunks]
+            st.write(translated_subchunks)
+            # re-assemble the translated sub-chunks
+            translated_chunks.append(" ".join(translated_subchunks))
 
-    st.subheader("Initial Translation")
-    st.write(translated)
+    full_translated = "\n\n".join(translated_chunks)
+
+    # st.subheader("Initial Translation")
+    # st.write(full_translated)
 
     # auto-review
     with st.spinner("Auto-reviewing..."):
-        reviewed = auto_review(translated)
+        reviewed = auto_review(full_translated)
 
     st.subheader("After auto-review")
     st.write(reviewed)
@@ -136,16 +152,17 @@ if raw_text:
     if perplexity_score > 1500:
         st.warning("Perplexity score is high. Please double-check the translation manually.")
 
-    # user confirmation
+    # allow users to check
     st.subheader("Side-by-side comparison")
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("**Original**")
-        st.write(raw_text[:1500] + ("..." if len(raw_text) > 1500 else ""))
+        st.write(chunks[0][:2000] + ("..." if len(chunks[0]) > 2000 else ""))
     with col2:
         st.markdown("**Translated**")
-        st.write(reviewed[:1500] + ("..." if len(reviewed) > 1500 else ""))
+        st.write(reviewed[:2000] + ("..." if len(reviewed) > 2000 else ""))
 
+    # allow manual edits
     st.markdown("""
         You can **edit** the translated text directly below if you spot an error.
         Once satisfied, click one of the download buttons.

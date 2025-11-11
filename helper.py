@@ -1,20 +1,68 @@
 import docx
+import hashlib
+import io
 import pdfplumber
 import streamlit as st
 import tempfile
 
+def file_hash(file_bytes: bytes) -> str:
+    return hashlib.sha256(file_bytes).hexdigest()
+
+@st.cache_data
 def read_docx(file) -> str:
     doc = docx.Document(file)
     return "\n".join([para.text for para in doc.paragraphs])
 
-def read_pdf(file) -> str:
-    text = ""
-    with pdfplumber.open(file) as pdf:
+@st.cache_data
+def read_pdf_chunks(file_bytes: bytes, chunk_size=5000) -> list[str]:
+    """
+    Return a list of text chunks that are roughly `chunk_size` characters each.
+    Keeps page order.
+    """
+    chunks = []
+    current = ""
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
-            text += page.extract_text() + "\n"
-    return text
+            text = page.extract_text() or ""
+            # very long PDFs often contain a lot of whitespace. So collapse it.
+            text = " ".join(text.split())
+            if len(current) + len(text) > chunk_size:
+                if current:
+                    chunks.append(current.strip())
+                current = text
+            else:
+                current += " " + text
+    
+    if current:
+        chunks.append(current.strip())
+
+    return chunks
+
+@st.cache_resource
+def get_tokenizer():
+    """GPT-4o-mini uses the encoding: cl100k_base"""
+    import tiktoken
+    return tiktoken.encoding_for_model("gpt-4o-mini")
+
+def split_into_token_chunks(text: str, max_tokens: int = 2000) -> list[str]:
+    """
+    Split a string into chunks that are <= max_tokens tokens long (roughly
+    the limit you can send to GPT-4o-mini in a single call). 
+    """
+    enc = get_tokenizer()
+    tokens = enc.encode(text)
+    chunks = []
+    start = 0
+    while start < len(tokens):
+        end = min(start + max_tokens, len(tokens))
+        chunk_tokens = tokens[start:end]
+        chunk_text = enc.decode(chunk_tokens)
+        chunks.append(chunk_text)
+        start = end
+    return chunks
 
 def download_txt(text: str, filename: str = "translated_file.txt"):
+    """Creates a download translation as .txt file button."""
     return st.download_button(
         label = "Download as .txt",
         data = text,
@@ -23,6 +71,7 @@ def download_txt(text: str, filename: str = "translated_file.txt"):
     )
 
 def download_docx(text: str, filename: str = "translated_file.docx"):
+    """Creates a download translation as .docx file button."""
     doc = docx.Document()
     for para in text.split("\n"):
         doc.add_paragraph(para)
