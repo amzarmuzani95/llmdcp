@@ -3,7 +3,7 @@ from openai import OpenAI
 import os
 import hmac
 
-
+PROMPT = "Translate the received text into clear, natural English."
 
 def check_password():
     """Returns `True` if the user had the correct password."""
@@ -42,7 +42,7 @@ client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"],
 )
 
-def gpt_msg(message_in, prompt='Translate this text into English'):
+def gpt_msg(message_in, prompt=PROMPT):
   """Call to OpenAI ChatGPT.
   
   Args: 
@@ -66,7 +66,7 @@ def gpt_msg(message_in, prompt='Translate this text into English'):
 
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
-        {"role": "assistant", "content": "Please enter text here to translate it into English"}
+        {"role": "assistant", "content": "Please enter text here to translate it"}
     ]
 
 for msg in st.session_state.messages:

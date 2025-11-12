@@ -3,8 +3,7 @@ from openai import OpenAI
 import os
 import hmac
 
-
-
+PROMPT = "Translate the received text into clear, natural German."
 
 def check_password():
     """Returns `True` if the user had the correct password."""
@@ -35,7 +34,7 @@ if not check_password():
     
     
 
-st.title("translate text to German")
+st.title("Translate text to German")
 
 
 client = OpenAI(
@@ -43,7 +42,7 @@ client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"],
 )
 
-def gpt_msg(message_in,prompt='Translate this text into German'):
+def gpt_msg(message_in, prompt=PROMPT):
   #message_in = message_in or 'this is a test message'
   #propmt = propmt or 'translate this sentence into German'
   #role = role or 'user'
@@ -64,7 +63,7 @@ def gpt_msg(message_in,prompt='Translate this text into German'):
 
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
-        {"role": "assistant", "content": "Please enter text here to translate it into German"}
+        {"role": "assistant", "content": "Please enter text here to translate it"}
     ]
 
 for msg in st.session_state.messages:
