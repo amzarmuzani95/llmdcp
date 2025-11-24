@@ -7,6 +7,7 @@ from pathlib import Path
 
 from helper import read_docx, read_pdf_chunks, download_txt, download_docx, perplexity_check, file_hash, split_into_token_chunks
 
+# --- Functions ---
 def check_password():
     """Returns `True` if the user had the correct password."""
 
@@ -56,7 +57,7 @@ def auto_review(english_text: str, model="gpt-5-nano") -> str:
     return response.choices[0].message.content.strip()
 
 @st.cache_data
-def translate(text: str, model="gpt-4o-mini") -> str:
+def translate_subchunk(text: str, model="gpt-4o-mini") -> str:
     """Request OpenAI ChatGPT to translate a document.
   
     Args: 
@@ -92,7 +93,7 @@ If you encounter ambiguous terms or cultural references, provide a brief note in
     )
     return response.choices[0].message.content.strip()
 
-def summarize(text: str, max_tokens: int = 1000, model="gpt-4o-mini") -> str:
+def summarize_subchunk(text: str, max_tokens: int = 1000, model="gpt-4o-mini") -> str:
     """
     Summarize the input text into a concise English paragraph.
     """
@@ -113,8 +114,12 @@ def summarize(text: str, max_tokens: int = 1000, model="gpt-4o-mini") -> str:
     )
     return response.choices[0].message.content.strip()
 
+# --- UI ---
+
 st.title("Translate or Summarize documents to English")
-st.caption("Upload a file and translate it into English or just summarize it!")
+st.write("Upload a file and translate it into English or just summarize it!")
+st.caption("NOTE: Please do NOT share any sensitive information as OpenAI servers are still stored in the US (not under GDPR)") 
+
 
 # give user a choice to translate or summarize
 mode = st.radio(
@@ -150,12 +155,12 @@ if uploaded_file is not None:
 
         # translate/summarize each sub-chunk
         if mode == "Translate document":
-            processed_subchunks = [translate(sub) for sub in subchunks]
+            processed_subchunks = [translate_subchunk(sub) for sub in subchunks]
         else:
             # Summarize each sub-chunk first, then merge
             # (Keep the original chunk order; summarizing each chunk then concatenate
             # this usually gives a good overview of the whole doc.)
-            processed_subchunks = [summarize(sub) for sub in subchunks]
+            processed_subchunks = [summarize_subchunk(sub) for sub in subchunks]
         
         # write out & re-assemble the translated sub-chunks
         st.write(processed_subchunks)

@@ -36,6 +36,8 @@ if not check_password():
 
 st.title("Translate text to German")
 
+st.caption("NOTE: Please do NOT share any sensitive information as OpenAI servers are still stored in the US (not under GDPR)") 
+
 
 client = OpenAI(
     # This is the default and can be omitted
@@ -63,7 +65,7 @@ def gpt_msg(message_in, prompt=PROMPT):
 
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
-        {"role": "assistant", "content": "Please enter text here to translate it"}
+        {"role": "assistant", "content": "Please enter text below to translate it"}
     ]
 
 for msg in st.session_state.messages:
